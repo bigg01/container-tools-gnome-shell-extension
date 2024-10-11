@@ -1,0 +1,7 @@
+{
+    "uuid": "container-tools@gnome-shell-extensions.containerize.ch",
+    "name": "Container Tools",
+    "description": "A GNOME Shell extension that provides a set of tools for managing containers.",
+    "shell-version": [ "46" ],
+    "url": "https://github.com/bigg01/container-tools-gnome-shell-extension"
+}

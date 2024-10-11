@@ -1,0 +1,210 @@
+import GLib from 'gi://GLib';
+import St from 'gi://St';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+
+export default class ExampleExtension {
+    enable() {
+        // Create a panel button
+        this._indicator = new PanelMenu.Button(0.0, 'Example Extension', false);
+
+        // Create a vertical box layout
+        const box = new St.BoxLayout({ vertical: true });
+
+        // Add a container icon at the top
+        const containerIcon = new St.Icon({
+            icon_name: 'utilities-terminal-symbolic',
+            style_class: 'system-status-icon',
+        });
+        box.add_child(containerIcon);
+
+        // Create a horizontal box layout for the label
+        const labelBox = new St.BoxLayout({ vertical: false });
+
+        // Add an icon
+        const icon = new St.Icon({
+            icon_name: 'system-run-symbolic',
+            style_class: 'system-status-icon',
+        });
+
+        // Add text
+        const label = new St.Label({
+            text: 'Containerize.ch',
+        });
+
+        // Add icon and label to the label box layout
+        labelBox.add_child(icon);
+        labelBox.add_child(label);
+
+        // Add the label box layout to the main box layout
+        box.add_child(labelBox);
+
+        // Add the box layout to the indicator
+        this._indicator.add_child(box);
+
+        // Create a dropdown menu for containers
+        const menu = this._indicator.menu;
+
+        // Add a submenu for running containers
+        this.containersSubMenu = new PopupMenu.PopupSubMenuMenuItem('Running Containers');
+        menu.addMenuItem(this.containersSubMenu);
+
+        // Add a submenu for metrics
+        this.metricsSubMenu = new PopupMenu.PopupSubMenuMenuItem('Metrics');
+        menu.addMenuItem(this.metricsSubMenu);
+
+        // Add icons and labels for metrics
+        this.runningContainersLabel = new St.Label({ text: 'Running Containers: 0' });
+        this.imagesLabel = new St.Label({ text: 'Images: 0' });
+        this.volumesLabel = new St.Label({ text: 'Volumes: 0' });
+
+        const runningContainersIcon = new St.Icon({
+            icon_name: 'media-playback-start-symbolic',
+            style_class: 'system-status-icon',
+        });
+
+        const imagesIcon = new St.Icon({
+            icon_name: 'folder-documents-symbolic',
+            style_class: 'system-status-icon',
+        });
+
+        const volumesIcon = new St.Icon({
+            icon_name: 'drive-harddisk-symbolic',
+            style_class: 'system-status-icon',
+        });
+
+        const runningContainersBox = new St.BoxLayout({ vertical: false });
+        runningContainersBox.add_child(runningContainersIcon);
+        runningContainersBox.add_child(this.runningContainersLabel);
+
+        const imagesBox = new St.BoxLayout({ vertical: false });
+        imagesBox.add_child(imagesIcon);
+        imagesBox.add_child(this.imagesLabel);
+
+        const volumesBox = new St.BoxLayout({ vertical: false });
+        volumesBox.add_child(volumesIcon);
+        volumesBox.add_child(this.volumesLabel);
+
+        const runningContainersMenuItem = new PopupMenu.PopupBaseMenuItem({ reactive: false });
+        runningContainersMenuItem.add_child(runningContainersBox);
+        this.metricsSubMenu.menu.addMenuItem(runningContainersMenuItem);
+
+        const imagesMenuItem = new PopupMenu.PopupBaseMenuItem({ reactive: false });
+        imagesMenuItem.add_child(imagesBox);
+        this.metricsSubMenu.menu.addMenuItem(imagesMenuItem);
+
+        const volumesMenuItem = new PopupMenu.PopupBaseMenuItem({ reactive: false });
+        volumesMenuItem.add_child(volumesBox);
+        this.metricsSubMenu.menu.addMenuItem(volumesMenuItem);
+
+        // Function to refresh the list of running containers and metrics
+        this._refreshContainersAndMetrics();
+
+        // Refresh every 10 seconds
+        this._timeout = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 10, () => {
+            this._refreshContainersAndMetrics();
+            return GLib.SOURCE_CONTINUE;
+        });
+
+        // Add the indicator to the panel
+        Main.panel.addToStatusArea('example-extension', this._indicator);
+    }
+
+    disable() {
+        if (this._timeout) {
+            GLib.source_remove(this._timeout);
+            this._timeout = null;
+        }
+        this._indicator?.destroy();
+        this._indicator = null;
+    }
+
+    _refreshContainersAndMetrics() {
+        // Determine whether to use docker or podman
+        const containerCommand = GLib.find_program_in_path('docker') ? 'docker' : GLib.find_program_in_path('podman') ? 'podman' : null;
+
+        if (!containerCommand) {
+            this.containersSubMenu.menu.addMenuItem(new PopupMenu.PopupMenuItem('Neither Docker nor Podman is available'));
+            this.runningContainersLabel.set_text('Running Containers: 0');
+            this.imagesLabel.set_text('Images: 0');
+            this.volumesLabel.set_text('Volumes: 0');
+            return;
+        }
+
+        // Clear existing items
+        this.containersSubMenu.menu.removeAll();
+
+        // Fetch running containers
+        const [successRunningContainers, outputRunningContainers] = GLib.spawn_command_line_sync(`${containerCommand} ps --format "{{.Names}}"`);
+        if (successRunningContainers) {
+            const runningContainers = outputRunningContainers.toString().trim().split('\n').filter(Boolean);
+            runningContainers.forEach(container => {
+                const containerBox = new St.BoxLayout({ vertical: false });
+
+                // Add stop action
+                const stopButton = new St.Button({ label: 'Stop' });
+                stopButton.connect('clicked', () => {
+                    GLib.spawn_command_line_async(`${containerCommand} stop ${container}`);
+                });
+
+                const containerLabel = new St.Label({ text: container });
+
+                containerBox.add_child(stopButton);
+                containerBox.add_child(containerLabel);
+
+                const containerMenuItem = new PopupMenu.PopupBaseMenuItem({ reactive: false });
+                containerMenuItem.add_child(containerBox);
+                this.containersSubMenu.menu.addMenuItem(containerMenuItem);
+            });
+            this.runningContainersLabel.set_text(`Running Containers: ${runningContainers.length}`);
+        } else {
+            this.containersSubMenu.menu.addMenuItem(new PopupMenu.PopupMenuItem('Failed to fetch running containers'));
+            this.runningContainersLabel.set_text('Running Containers: 0');
+        }
+
+        // Fetch stopped containers
+        const [successStoppedContainers, outputStoppedContainers] = GLib.spawn_command_line_sync(`${containerCommand} ps -a --filter "status=exited" --format "{{.Names}}"`);
+        if (successStoppedContainers) {
+            const stoppedContainers = outputStoppedContainers.toString().trim().split('\n').filter(Boolean);
+            stoppedContainers.forEach(container => {
+                const containerBox = new St.BoxLayout({ vertical: false });
+
+                // Add start action
+                const startButton = new St.Button({ label: 'Start' });
+                startButton.connect('clicked', () => {
+                    GLib.spawn_command_line_async(`${containerCommand} start ${container}`);
+                });
+
+                const containerLabel = new St.Label({ text: container });
+
+                containerBox.add_child(startButton);
+                containerBox.add_child(containerLabel);
+
+                const containerMenuItem = new PopupMenu.PopupBaseMenuItem({ reactive: false });
+                containerMenuItem.add_child(containerBox);
+                this.containersSubMenu.menu.addMenuItem(containerMenuItem);
+            });
+        } else {
+            this.containersSubMenu.menu.addMenuItem(new PopupMenu.PopupMenuItem('Failed to fetch stopped containers'));
+        }
+
+        // Fetch container images
+        const [successImages, outputImages] = GLib.spawn_command_line_sync(`${containerCommand} images -q`);
+        if (successImages) {
+            const images = outputImages.toString().trim().split('\n').filter(Boolean);
+            this.imagesLabel.set_text(`Images: ${images.length}`);
+        } else {
+            this.imagesLabel.set_text('Images: 0');
+        }
+
+        // Fetch container volumes
+        const [successVolumes, outputVolumes] = GLib.spawn_command_line_sync(`${containerCommand} volume ls -q`);
+        if (successVolumes) {
+            const volumes = outputVolumes.toString().trim().split('\n').filter(Boolean);
+            this.volumesLabel.set_text(`Volumes: ${volumes.length}`);
+        } else {
+            this.volumesLabel.set_text('Volumes: 0');
+        }
+    }
+}
