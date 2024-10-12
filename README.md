@@ -38,6 +38,7 @@ gtk3-icon-browser
 
 
 dbus-run-session -- gnome-shell --nested --wayland 
+gjs-console  script.js
 
 
 ## know issues with podman

@@ -31,7 +31,7 @@ export default class ExampleExtension {
 
         // Add an icon
         const icon = new St.Icon({
-            icon_name: 'system-run-symbolic',
+            icon_name: 'applications-accessories-symbolic',
             style_class: 'system-status-icon',
         });
 
